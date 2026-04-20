@@ -34,6 +34,9 @@ if (!DISCORD_TOKEN || !GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+console.log('[Debug] DISCORD_TOKEN exists:', !!process.env.DISCORD_TOKEN);
+console.log('[Debug] Token length:', process.env.DISCORD_TOKEN?.length);
+console.log('[Debug] Attempting Discord login...');
 
 const client = new Client({
   intents: [
@@ -42,7 +45,11 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
+console.log('[Debug] Attempting Discord login...', client);
 
+client.login(DISCORD_TOKEN)
+    .then(() => console.log('[Debug] Login promise resolved'))
+    .catch(err => console.error('[Debug] Login failed:', err.message));
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
