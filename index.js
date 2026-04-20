@@ -382,15 +382,17 @@ function formatNumber(value) {
 
 // Cuối file, thay toàn bộ phần dưới các hàm helper bằng:
 
-// --- RENDER KEEP-ALIVE SYSTEM ---
-const http = require('http');
+// --- RENDER KEEP-ALIVE SYSTEM (EXPRESS) ---
+const express = require('express');
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Discord Health Bot is alive and running!');
-}).listen(PORT, () => {
-    console.log(`Keep-alive server listening on port ${PORT}`);
+app.get('/', (req, res) => {
+    res.send('Discord Health Bot is alive and running with Express!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Keep-alive Express server listening on port ${PORT}`);
 });
 
 setInterval(() => {
@@ -401,6 +403,8 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 // --- DISCORD LOGIN --- chỉ 1 lần duy nhất
+console.log("discord_token", DISCORD_TOKEN.slice(0, 5))
+console.log("gemini", GEMINI_API_KEY.slice(0, 5))
 client.login(DISCORD_TOKEN)
     .then(() => console.log('Discord login successful ✅'))
     .catch(err => console.error('Discord login failed ❌:', err.message));
