@@ -380,3 +380,24 @@ function roundToTwo(value) {
 function formatNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
+
+// --- RENDER KEEP-ALIVE SYSTEM ---
+// Máy chủ web giả lập để Render nhận diện dịch vụ đang chạy
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Discord Health Bot is alive and running!');
+}).listen(PORT, () => {
+  console.log(`Keep-alive server listening on port ${PORT}`);
+});
+
+// Tự động ping vào đường link Render của chính nó mỗi 10 phút để chống buồn ngủ
+setInterval(() => {
+  const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  fetch(url)
+    .then(() => console.log(`[Keep-Alive] Pinged ${url}`))
+    .catch(err => console.error(`[Keep-Alive] Ping failed:`, err.message));
+}, 10 * 60 * 1000); // 10 phút
+
