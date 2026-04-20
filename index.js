@@ -34,9 +34,6 @@ if (!DISCORD_TOKEN || !GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-console.log('[Debug] DISCORD_TOKEN exists:', !!process.env.DISCORD_TOKEN);
-console.log('[Debug] Token length:', process.env.DISCORD_TOKEN?.length);
-console.log('[Debug] Attempting Discord login...');
 
 const client = new Client({
   intents: [
@@ -45,11 +42,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
-console.log('[Debug] Attempting Discord login...', client);
 
-client.login(DISCORD_TOKEN)
-    .then(() => console.log('[Debug] Login promise resolved'))
-    .catch(err => console.error('[Debug] Login failed:', err.message));
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
@@ -112,7 +105,6 @@ process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
 });
 
-client.login(DISCORD_TOKEN);
 
 function getFirstImageAttachment(attachments) {
   return attachments.find((attachment) => {
@@ -388,23 +380,27 @@ function formatNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+// Cuối file, thay toàn bộ phần dưới các hàm helper bằng:
+
 // --- RENDER KEEP-ALIVE SYSTEM ---
-// Máy chủ web giả lập để Render nhận diện dịch vụ đang chạy
 const http = require('http');
 const PORT = process.env.PORT || 3000;
 
 http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Discord Health Bot is alive and running!');
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Discord Health Bot is alive and running!');
 }).listen(PORT, () => {
-  console.log(`Keep-alive server listening on port ${PORT}`);
+    console.log(`Keep-alive server listening on port ${PORT}`);
 });
 
-// Tự động ping vào đường link Render của chính nó mỗi 10 phút để chống buồn ngủ
 setInterval(() => {
-  const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-  fetch(url)
-    .then(() => console.log(`[Keep-Alive] Pinged ${url}`))
-    .catch(err => console.error(`[Keep-Alive] Ping failed:`, err.message));
-}, 10 * 60 * 1000); // 10 phút
+    const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+    fetch(url)
+        .then(() => console.log(`[Keep-Alive] Pinged ${url}`))
+        .catch(err => console.error(`[Keep-Alive] Ping failed:`, err.message));
+}, 10 * 60 * 1000);
 
+// --- DISCORD LOGIN --- chỉ 1 lần duy nhất
+client.login(DISCORD_TOKEN)
+    .then(() => console.log('Discord login successful ✅'))
+    .catch(err => console.error('Discord login failed ❌:', err.message));
