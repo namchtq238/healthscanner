@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Opening Apple Health...</title>
+</head>
+<body>
+  <p>Đang chuyển hướng sang Apple Shortcuts để log dữ liệu...</p>
+  <script>
+    // Lấy đoạn data được bot Discord kẹp vào URL
+    const params = new URLSearchParams(window.location.search);
+    const inputData = params.get('input');
+
+    if (inputData) {
+      // Tự động đá URL sang app Apple Shortcuts ngay khi trang vừa load
+      window.location.href = `shortcuts://run-shortcut?name=input-health&input=${inputData}`;
+    }
+  </script>
+</body>
+</html>
