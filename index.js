@@ -5,13 +5,17 @@ const {
   ButtonBuilder,
   ButtonStyle,
   Client,
+  EmbedBuilder,
   GatewayIntentBits,
 } = require('discord.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const ANALYSIS_PROMPT =
   'Analyze this food image. Return a raw JSON object with these exact keys: calories, protein, carbs, fat, food_name. Ensure values are numbers (except food_name). No markdown, no extra text.';
-const MODEL_NAME = 'gemini-1.5-flash';
+const FALLBACK_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash'
+];
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
 const REQUIRED_KEYS = ['calories', 'protein', 'carbs', 'fat', 'food_name'];
 const SUPPORTED_IMAGE_TYPES = new Set([
@@ -30,7 +34,6 @@ if (!DISCORD_TOKEN || !GEMINI_API_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
 const client = new Client({
   intents: [
@@ -40,7 +43,7 @@ const client = new Client({
   ],
 });
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
@@ -48,6 +51,10 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) {
     return;
   }
+    const allowedChannelNames = ['health'];
+    if (!allowedChannelNames.includes(message.channel.name)) {
+        return;
+    }
 
   const imageAttachment = getFirstImageAttachment(message.attachments);
   if (!imageAttachment) {
@@ -55,23 +62,33 @@ client.on('messageCreate', async (message) => {
   }
 
   try {
+    await message.channel.sendTyping();
     const imageData = await downloadAttachment(imageAttachment);
     const nutrition = await analyzeFoodImage(imageData.buffer, imageData.mimeType);
+    
     const shortcutUrl = buildShortcutUrl(nutrition);
-    const replyContent = formatNutritionSummary(nutrition);
+    const replyEmbed = formatNutritionSummary(nutrition);
     const components = [buildShortcutButton(shortcutUrl)];
 
     await message.reply({
-      content: replyContent,
+      embeds: [replyEmbed],
       components,
       allowedMentions: { repliedUser: true },
     });
   } catch (error) {
     console.error('Failed to process image:', error);
 
+    let replyMsg = 'I could not analyze that image. Make sure it is a valid food photo in JPEG, PNG, WEBP, HEIC, or HEIF format, then try again.';
+    
+    if (error?.message?.includes('429 Too Many Requests')) {
+      replyMsg = 'Dịch vụ hình ảnh hiện đã hết số lượt chạy miễn phí tốc độ cao (Quá tải yêu cầu). Vui lòng đợi khoảng 1 phút rồi up lại nhé!';
+    } else if (error?.message?.includes('503 Service Unavailable')) {
+      replyMsg = 'Dịch vụ hình ảnh hiện đang nghẽn mạng cục bộ. Vui lòng đợi vài giây và thử lại!';
+    }
+
     await safeReply(
       message,
-      'I could not analyze that image. Make sure it is a valid food photo in JPEG, PNG, WEBP, HEIC, or HEIF format, then try again.'
+      replyMsg
     );
   }
 });
@@ -129,47 +146,62 @@ async function downloadAttachment(attachment) {
 }
 
 async function analyzeFoodImage(buffer, mimeType) {
-  const result = await model.generateContent({
-    contents: [
-      {
-        role: 'user',
-        parts: [
+  let lastError;
+
+  for (const modelName of FALLBACK_MODELS) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent({
+        contents: [
           {
-            inlineData: {
-              data: buffer.toString('base64'),
-              mimeType,
-            },
-          },
-          {
-            text: ANALYSIS_PROMPT,
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  data: buffer.toString('base64'),
+                  mimeType,
+                },
+              },
+              {
+                text: ANALYSIS_PROMPT,
+              },
+            ],
           },
         ],
-      },
-    ],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.2,
-    },
-  });
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      });
 
-  const responseText = result.response.text();
-  return parseNutritionPayload(responseText);
+      const responseText = result.response.text();
+      return parseNutritionPayload(responseText);
+    } catch (error) {
+      console.warn(`[Fallback Warning] Model ${modelName} failed:`, error.message);
+      lastError = error;
+      continue;
+    }
+  }
+
+  throw new Error(`All fallback models failed. Last error: ${lastError.message}`);
 }
 
 function parseNutritionPayload(rawText) {
   const sanitized = stripCodeFences(String(rawText || '').trim());
   const candidates = [sanitized, extractFirstJsonObject(sanitized)].filter(Boolean);
+  let lastError = null;
 
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
       return normalizeNutritionObject(parsed);
     } catch (error) {
+      lastError = error;
       continue;
     }
   }
 
-  throw new Error(`Unable to parse Gemini response as JSON: ${rawText}`);
+  throw new Error(`Unable to parse or validate Gemini response JSON. Last Error: ${lastError ? lastError.message : 'Unknown'}\nRaw: ${rawText}`);
 }
 
 function normalizeNutritionObject(value) {
@@ -194,11 +226,22 @@ function normalizeNutritionObject(value) {
       continue;
     }
 
-    const numberValue =
-      typeof value[key] === 'number' ? value[key] : Number(String(value[key]).trim());
+    let rawVal = value[key];
+    if (rawVal == null || String(rawVal).trim().toLowerCase() === 'null' || String(rawVal).trim().toLowerCase() === 'n/a') {
+      rawVal = 0;
+    }
+
+    let numberValue;
+    if (typeof rawVal === 'number') {
+      numberValue = rawVal;
+    } else {
+      const cleanStr = String(rawVal).replace(/,/g, '').trim();
+      const parsed = parseFloat(cleanStr);
+      numberValue = isNaN(parsed) ? 0 : parsed;
+    }
 
     if (!Number.isFinite(numberValue)) {
-      throw new Error(`${key} must be a finite number.`);
+      numberValue = 0;
     }
 
     normalized[key] = roundToTwo(numberValue);
@@ -209,7 +252,7 @@ function normalizeNutritionObject(value) {
 
 function buildShortcutUrl(nutrition) {
   const input = encodeURIComponent(JSON.stringify(nutrition));
-  return `shortcuts://run-shortcut?name=input-health&input=${input}`;
+  return `https://namchtq238.github.io/healthscanner/?input=${input}`;
 }
 
 function buildShortcutButton(url) {
@@ -222,13 +265,15 @@ function buildShortcutButton(url) {
 }
 
 function formatNutritionSummary(nutrition) {
-  return [
-    `**${nutrition.food_name}**`,
-    `Calories: ${formatNumber(nutrition.calories)}`,
-    `Protein: ${formatNumber(nutrition.protein)} g`,
-    `Carbs: ${formatNumber(nutrition.carbs)} g`,
-    `Fat: ${formatNumber(nutrition.fat)} g`,
-  ].join('\n');
+  return new EmbedBuilder()
+    .setColor('#2ecc71')
+    .setTitle(`Nutrition: ${nutrition.food_name}`)
+    .addFields(
+      { name: 'Calories', value: formatNumber(nutrition.calories), inline: true },
+      { name: 'Protein', value: `${formatNumber(nutrition.protein)} g`, inline: true },
+      { name: 'Carbs', value: `${formatNumber(nutrition.carbs)} g`, inline: true },
+      { name: 'Fat', value: `${formatNumber(nutrition.fat)} g`, inline: true }
+    );
 }
 
 async function safeReply(message, content) {

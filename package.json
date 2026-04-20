@@ -5,7 +5,9 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "up": "docker compose up -d --build",
+    "down": "docker compose down -v"
   },
   "engines": {
     "node": ">=18.0.0"
